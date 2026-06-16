@@ -1,0 +1,222 @@
+{
+  "GiaDat2019": {
+    "target_col": "GiaDat2019",
+    "model_path": "model\\artifacts\\catboost_spatial_GiaDat2019.cbm",
+    "meta_path": "model\\artifacts\\catboost_spatial_GiaDat2019_meta.json",
+    "features_path": "model\\artifacts\\catboost_spatial_GiaDat2019_features.json",
+    "clusterer_path": "model\\artifacts\\catboost_spatial_GiaDat2019_kmeans.joblib",
+    "importance_path": "model\\artifacts\\catboost_spatial_GiaDat2019_feature_importance.csv",
+    "holdout_metrics": {
+      "R2": 0.7624598382505215,
+      "Pearson_r": 0.895907780373557,
+      "Pearson_p_value": 0.0,
+      "MSE": 183061326.0596559,
+      "RMSE": 13530.015744989209,
+      "MAE": 4775.21521774272,
+      "MAPE_percent": 16.323052910298856
+    },
+    "cv_average_metrics": {
+      "R2": 0.881099919033692,
+      "Pearson_r": 0.9438506214053992,
+      "Pearson_p_value": 0.0,
+      "MSE": 50453667.32884468,
+      "RMSE": 6051.258852612349,
+      "MAE": 2732.7616942300456,
+      "MAPE_percent": 14.098681213272869
+    },
+    "top_features": [
+      {
+        "feature": "district_word_count",
+        "importance": 30.9294792740677
+      },
+      {
+        "feature": "QuanHuyen",
+        "importance": 13.826084584623546
+      },
+      {
+        "feature": "district_ward_key",
+        "importance": 11.829703297913165
+      },
+      {
+        "feature": "TenDuong_prefix",
+        "importance": 4.749817160326305
+      },
+      {
+        "feature": "y_round_3",
+        "importance": 4.6765559713926645
+      },
+      {
+        "feature": "road_key_len",
+        "importance": 4.547906205095519
+      },
+      {
+        "feature": "road_name_len",
+        "importance": 4.130301593762383
+      },
+      {
+        "feature": "Y",
+        "importance": 4.092631495212689
+      },
+      {
+        "feature": "x_round_3",
+        "importance": 3.4403558689137315
+      },
+      {
+        "feature": "district_len",
+        "importance": 3.2536689693947185
+      },
+      {
+        "feature": "X",
+        "importance": 3.2040253839351984
+      },
+      {
+        "feature": "road_district_key",
+        "importance": 2.6439844925627716
+      },
+      {
+        "feature": "road_ward_key",
+        "importance": 1.9729356067189647
+      },
+      {
+        "feature": "TenDuong_suffix",
+        "importance": 1.903254000063645
+      },
+      {
+        "feature": "road_key_word_count",
+        "importance": 1.7354777422459642
+      },
+      {
+        "feature": "Phuong",
+        "importance": 1.7104113585936174
+      },
+      {
+        "feature": "road_name_word_count",
+        "importance": 1.063706068422123
+      },
+      {
+        "feature": "TenDuong",
+        "importance": 0.11265231107815862
+      },
+      {
+        "feature": "ward_word_count",
+        "importance": 0.09594631744828619
+      },
+      {
+        "feature": "ward_len",
+        "importance": 0.06837606142847603
+      }
+    ],
+    "train_rows": 9111,
+    "test_rows": 2457
+  },
+  "GiaDat2025": {
+    "target_col": "GiaDat2025",
+    "model_path": "model\\artifacts\\catboost_spatial_GiaDat2025.cbm",
+    "meta_path": "model\\artifacts\\catboost_spatial_GiaDat2025_meta.json",
+    "features_path": "model\\artifacts\\catboost_spatial_GiaDat2025_features.json",
+    "clusterer_path": "model\\artifacts\\catboost_spatial_GiaDat2025_kmeans.joblib",
+    "importance_path": "model\\artifacts\\catboost_spatial_GiaDat2025_feature_importance.csv",
+    "holdout_metrics": {
+      "R2": 0.6942900284275486,
+      "Pearson_r": 0.8736823745157362,
+      "Pearson_p_value": 0.0,
+      "MSE": 4552303030.229643,
+      "RMSE": 67470.75685235525,
+      "MAE": 28836.40456799181,
+      "MAPE_percent": 25.02633881321318
+    },
+    "cv_average_metrics": {
+      "R2": 0.8556264397855207,
+      "Pearson_r": 0.9351624208587499,
+      "Pearson_p_value": 0.0,
+      "MSE": 1239748854.333327,
+      "RMSE": 29808.813540856343,
+      "MAE": 13653.60770146421,
+      "MAPE_percent": 10.235763829253354
+    },
+    "top_features": [
+      {
+        "feature": "district_word_count",
+        "importance": 29.829867190637078
+      },
+      {
+        "feature": "district_ward_key",
+        "importance": 11.267776531093029
+      },
+      {
+        "feature": "QuanHuyen",
+        "importance": 8.062540037849933
+      },
+      {
+        "feature": "road_ward_key",
+        "importance": 6.748315840780036
+      },
+      {
+        "feature": "road_key_len",
+        "importance": 5.4516739235136775
+      },
+      {
+        "feature": "Y",
+        "importance": 5.132749884822401
+      },
+      {
+        "feature": "road_name_len",
+        "importance": 5.106923308512761
+      },
+      {
+        "feature": "TenDuong_prefix",
+        "importance": 4.966962083448209
+      },
+      {
+        "feature": "X",
+        "importance": 4.572143168900344
+      },
+      {
+        "feature": "x_round_3",
+        "importance": 4.1479152388900005
+      },
+      {
+        "feature": "y_round_3",
+        "importance": 4.090446069520262
+      },
+      {
+        "feature": "TenDuong_suffix",
+        "importance": 3.6667935235240696
+      },
+      {
+        "feature": "Phuong",
+        "importance": 1.533276595175524
+      },
+      {
+        "feature": "road_name_word_count",
+        "importance": 1.49650866992451
+      },
+      {
+        "feature": "TenDuong",
+        "importance": 1.4049105655122889
+      },
+      {
+        "feature": "road_key_word_count",
+        "importance": 1.1485703991869096
+      },
+      {
+        "feature": "district_len",
+        "importance": 1.1105262581118138
+      },
+      {
+        "feature": "road_district_key",
+        "importance": 0.21552869625831983
+      },
+      {
+        "feature": "ward_len",
+        "importance": 0.026922271341736984
+      },
+      {
+        "feature": "ward_word_count",
+        "importance": 0.019604034971760415
+      }
+    ],
+    "train_rows": 8117,
+    "test_rows": 2515
+  }
+}

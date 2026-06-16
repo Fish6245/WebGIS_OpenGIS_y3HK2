@@ -1,0 +1,5 @@
+<?php
+require_once __DIR__ . '/../../src/bootstrap.php';
+
+$service = new EstimateService();
+json_response($service->estimateLand(request_json()));

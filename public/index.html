@@ -1,0 +1,93 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web GIS Ước lượng giá đất</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Web GIS Ước lượng giá đất</h1>
+        <p>PHP + HTML + PostGIS + Leaflet</p>
+      </div>
+      <div id="healthBadge" class="badge">Đang kiểm tra API...</div>
+    </header>
+
+    <main class="layout">
+      <section class="mapWrap">
+        <div id="map"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Tra cứu & ước lượng</h2>
+        <label>Tên đường / tìm nhanh</label>
+        <div class="search-input">
+          <input
+            class="input_adr"
+            id="keyword"
+            type="text"
+            placeholder="Nhập từ khóa địa chỉ..."
+          />
+          <div id="suggestions"></div>
+        </div>
+
+        <label>Tọa độ</label>
+        <div class="row">
+          <input
+            id="lat"
+            type="number"
+            step="any"
+            placeholder="Latitude"
+            value="10.775"
+          />
+          <input
+            id="lon"
+            type="number"
+            step="any"
+            placeholder="Longitude"
+            value="106.700"
+          />
+        </div>
+
+        <div class="actions">
+          <button id="btnEstimate" class="btn primary">Ước lượng</button>
+        </div>
+
+        <div class="result">
+          <div class="miniBox">
+            <h3>CÁC ĐƯỜNG KHÁC GẦN ĐÓ</h3>
+            <div id="nearbyRoadsBox">Đang chờ tính toán...</div>
+          </div>
+
+          <div class="miniBox">
+            <h3>CÁC ĐỊA ĐIỂM GẦN ĐÓ</h3>
+            <div id="nearbyPlacesBox">Đang chờ tính toán...</div>
+          </div>
+
+          <div class="miniBox">
+            <h3>KẾT QUẢ ƯỚC LƯỢNG</h3>
+            <div id="predictionBox">Chưa có dữ liệu.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="./js/api.js"></script>
+    <script src="./js/geocode.js"></script>
+    <script src="./js/autocomplete.js"></script>
+    <script src="./js/map.js"></script>
+    <script src="./js/estimate.js"></script>
+  </body>
+</html>
