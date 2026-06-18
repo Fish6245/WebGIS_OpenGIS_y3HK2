@@ -335,26 +335,16 @@ def predict(req: PredictRequest):
         payload = req.model_dump()
 
         source_row = find_best_row(payload)
-
-        # ==================================================
-        # MATCH FILE -> TRẢ VỀ ĐÚNG GIÁ TRONG EXCEL
-        # ==================================================
         if source_row is not None:
             matched = True
-
+            print("MATCH FOUND")
+            print(source_row["GiaDat2019"])
+            print(source_row["GiaDat2025"])
             result = {
-                "GiaDat2019": round(float(source_row["GiaDat2019"]), 0)
-                if pd.notna(source_row.get("GiaDat2019"))
-                else None,
-
-                "GiaDat2025": round(float(source_row["GiaDat2025"]), 0)
-                if pd.notna(source_row.get("GiaDat2025"))
-                else None,
+                "GiaDat2019": round(float(source_row["GiaDat2019"]), 0),
+                "GiaDat2025": round(float(source_row["GiaDat2025"]), 0),
             }
 
-        # ==================================================
-        # KHÔNG MATCH -> DÙNG MODEL CATBOOST
-        # ==================================================
         else:
             matched = False
 
@@ -367,11 +357,7 @@ def predict(req: PredictRequest):
                 feature_cols = feature_lists[target]
                 cat_cols = metas[target].get("cat_cols", [])
 
-                X = prepare_model_input(
-                    row_df,
-                    feature_cols,
-                    cat_cols
-                )
+                X = prepare_model_input(row_df, feature_cols, cat_cols)
 
                 pred = models[target].predict(X)[0]
 

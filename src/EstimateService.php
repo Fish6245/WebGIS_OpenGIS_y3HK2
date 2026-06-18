@@ -37,14 +37,14 @@ class EstimateService
         ];
     }
 
-    public function predictPrice(array $data): array
+public function predictPrice(array $data): array
 {
     $lat = $data['Latitude'] ?? $data['lat'] ?? null;
     $lng = $data['Longitude'] ?? $data['lng'] ?? null;
 
     $feature = [
-        "Latitude" => $data["Latitude"] ?? null,
-        "Longitude" => $data["Longitude"] ?? null,
+        "Latitude" => $lat,
+        "Longitude" => $lng,
         "TenDuong" => $data["TenDuong"] ?? null,
         "Phuong" => $data["Phuong"] ?? null,
         "QuanHuyen" => $data["QuanHuyen"] ?? null,
@@ -56,16 +56,16 @@ class EstimateService
         "nearbyPlaces" => $data["nearbyPlaces"] ?? [],
     ];
 
-    $matchedFromFile = false;
-    $matchedInfo = null;
-
-    // GIS enrich
+    // Bổ sung thông tin từ GIS nếu thiếu
     if (
         $lat !== null &&
         $lng !== null &&
         (empty($feature['TenDuong']) || empty($feature['QuanHuyen']))
     ) {
-        $nearest = $this->gis->findNearestRoadFeature((float)$lat, (float)$lng);
+        $nearest = $this->gis->findNearestRoadFeature(
+            (float)$lat,
+            (float)$lng
+        );
 
         if ($nearest) {
             foreach ($nearest as $k => $v) {
@@ -76,32 +76,20 @@ class EstimateService
         }
     }
 
-    /**
-     * ⚠️ QUAN TRỌNG:
-     * Nếu bạn có logic match file ở ML layer thì phải trả về flag từ đó
-     * Ví dụ ml->predict nên trả thêm matched_source
-     */
-    $prediction = $this->ml->predict($feature);
+    // gọi FastAPI
+    $result = $this->ml->predict($feature);
 
-    // 👉 FIX: lấy flag từ ML response nếu có
-    $matchedFromFile = $prediction['matched_source'] ?? false;
-    $matchedInfo = $prediction['matched_info'] ?? null;
+    // nếu ML lỗi
+    if (!($result['ok'] ?? false)) {
+        return [
+            'ok' => false,
+            'error' => $result['error'] ?? 'Predict failed'
+        ];
+    }
 
-    return [
-        'ok' => true,
-
-        // giữ feature để debug
-        'feature' => $feature,
-
-        // prediction
-        'prediction' => $prediction,
-
-        // 🔥 FIX QUAN TRỌNG CHO FRONTEND
-        'matched_source' => $matchedFromFile,
-        'source_type' => $matchedFromFile ? 'file_match' : 'model_prediction',
-
-        'matched_info' => $matchedInfo,
-    ];
+    // QUAN TRỌNG:
+    // trả nguyên response của FastAPI
+    return $result;
 }
 
     public function searchAddress(string $keyword): array
