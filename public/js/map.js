@@ -157,15 +157,24 @@
     try {
       const res = await reverseGeocode(lat, lon);
 
-      if (res?.address) {
+      if (!res || !res.ok) {
+        return null;
+      }
+
+      if (res.address) {
         addressInput.value = res.address;
       }
-      window.currentAddress = res?.feature || {};
+
+      window.currentAddress = res.feature || {};
+
       console.log("CURRENT ADDRESS =", window.currentAddress);
 
       return res;
     } catch (err) {
       console.error(err);
+
+      window.currentAddress = {};
+
       return null;
     }
   }
@@ -269,17 +278,33 @@
   }
 
   function renderPrediction(data) {
-    const p = data?.prediction ?? data;
+    console.log("RENDER INPUT:", data);
 
-    if (!p || (p.GiaDat2019 == null && p.GiaDat2025 == null)) {
+    const p = data?.prediction || data;
+
+    const isMatched = data?.matched_source === true;
+
+    const sourceLabel = isMatched
+      ? "Nguồn kết quả: tìm trong file"
+      : "Nguồn kết quả: model dự đoán - độ chính xác có thể không cao";
+
+    if (!p) {
       predictionBox.innerHTML = "Không có dữ liệu dự đoán.";
       return;
     }
 
     const address =
-      data?.feature?.Address_found ||
-      window.currentAddress?.Address_found ||
-      "Không rõ";
+      [
+        data?.matched_info?.TenDuong,
+        data?.matched_info?.Phuong,
+        data?.matched_info?.QuanHuyen,
+        data?.matched_info?.TinhThanh,
+      ]
+        .filter(Boolean)
+        .join(", ") || "Không rõ";
+
+    console.log("matched_source =", data.matched_source);
+    console.log("matched_info =", data.matched_info);
 
     predictionBox.innerHTML = `
     <div class="prediction-card">
@@ -295,6 +320,7 @@
 
       <div class="prediction-road">
         ${address}<br>
+        <strong>${sourceLabel}</strong>
       </div>
     </div>
   `;

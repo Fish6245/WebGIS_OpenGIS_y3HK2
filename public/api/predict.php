@@ -2,8 +2,7 @@
 
 require_once __DIR__ . '/../../src/bootstrap.php';
 
-$service =
-    new EstimateService();
+$service = new EstimateService();
 
 json_response(
     $service->predictPrice(

@@ -362,21 +362,45 @@ class GisService
         $name = preg_replace('/^Đường\s+/ui', '', $name);
         return trim($name);
     }
-        public function findNearestRoadFeature(float $lat, float $lon): ?array
+
+    public function findNearestRoadFeature(float $lat, float $lon): ?array
     {
-        $fallback = $this->reverseNominatim($lat, $lon);
+        $osm = $this->reverseNominatim($lat, $lon);
+        $admin = $this->lookupWardDistrictFromGeojson($lat, $lon);
+
+        $debug = $this->debugGeojson($lat,$lon);
+
+        file_put_contents(
+            __DIR__.'/debug_geojson.txt',
+            print_r($debug,true)
+        );
+
+        $result = [
+            'TenDuong' => $osm['TenDuong'] ?? '',
+
+            'Phuong' => $admin['Phuong'] ?? '',
+            'PhuongRaw' => $admin['PhuongRaw'] ?? '',
+            'PhuongLoai' => $admin['PhuongLoai'] ?? '',
+
+            'QuanHuyen' => $admin['QuanHuyen'] ?? '',
+            'QuanHuyenRaw' => $admin['QuanHuyenRaw'] ?? '',
+            'QuanHuyenLoai' => $admin['QuanHuyenLoai'] ?? '',
+
+            'TinhThanh' => $admin['TinhThanh'] ?? ($osm['TinhThanh'] ?? ''),
+            'Address_found' => '',
+            'Latitude' => $lat,
+            'Longitude' => $lon,
+            'distance_m' => null,
+        ];
+
         if (!$this->db) {
-            return [
-                "TenDuong"     => $fallback["TenDuong"] ?? "",
-                "Phuong"       => $fallback["Phuong"] ?? "",
-                "QuanHuyen"    => $fallback["QuanHuyen"] ?? "",
-                "TuDiem"       => "",
-                "DenDiem"      => "",
-                "Address_found"=> $fallback["Address_found"] ?? "",
-                "Latitude"     => $lat,
-                "Longitude"    => $lon,
-                "distance_m"   => null,
-            ];
+            $result['Address_found'] = trim(implode(', ', array_filter([
+                $result['TenDuong'],
+                $result['Phuong'],
+                $result['QuanHuyen'],
+                $result['TinhThanh'],
+            ])));
+            return $result;
         }
 
         try {
@@ -405,49 +429,47 @@ class GisService
             $row = $stmt->fetch();
 
             if ($row) {
+                if (!empty($row['TenDuong'])) {
+                    $result['TenDuong'] = (string)$row['TenDuong'];
+                }
 
-                if (empty($row["TenDuong"])) {
-                    $row["TenDuong"] = $fallback["TenDuong"] ?? "";
+                if ($result['QuanHuyen'] === '' && !empty($row['QuanHuyen'])) {
+                    $result['QuanHuyen'] = (string)$row['QuanHuyen'];
                 }
-                if (empty($row["Phuong"])) {
-                    $row["Phuong"] = $fallback["Phuong"] ?? "";
+
+                if (!empty($row['distance_m'])) {
+                    $result['distance_m'] = (float)$row['distance_m'];
                 }
-                if (empty($row["QuanHuyen"])) {
-                    $row["QuanHuyen"] = $fallback["QuanHuyen"] ?? "";
-                }
-                if (empty($row["Address_found"])) {
-                    $row["Address_found"] = $fallback["Address_found"] ?? "";
-                }
-                $row['Latitude'] = $lat;
-                $row['Longitude'] = $lon;
-                return $row;
+
+                $result['Address_found'] = trim(implode(', ', array_filter([
+                    $result['TenDuong'],
+                    $result['Phuong'],
+                    $result['QuanHuyen'],
+                    $result['TinhThanh'],
+                ])));
+
+                return $result;
             }
 
-            return [
-                "TenDuong" => $this->normalizeRoadName((string)($address["road"] ?? $address["pedestrian"] ?? $address["path"] ?? "")),
-                "Phuong" => (string)($fallback["Phuong"] ?? ""),
-                "QuanHuyen" => (string)($fallback["QuanHuyen"] ?? ""),
-                "TuDiem" => "",
-                "DenDiem" => "",
-                "Address_found" => (string)($fallback["Address_found"] ?? ""),
-                "Latitude" => $lat,
-                "Longitude" => $lon,
-                "distance_m" => null,
-            ];
+            $result['Address_found'] = trim(implode(', ', array_filter([
+                $result['TenDuong'],
+                $result['Phuong'],
+                $result['QuanHuyen'],
+                $result['TinhThanh'],
+            ])));
+
+            return $result;
         } catch (Throwable $e) {
-            return [
-                "TenDuong" => $this->normalizeRoadName((string)($address["road"] ?? $address["pedestrian"] ?? $address["path"] ?? "")),
-                "Phuong" => (string)($fallback["Phuong"] ?? ""),
-                "QuanHuyen" => (string)($fallback["QuanHuyen"] ?? ""),
-                "TuDiem" => "",
-                "DenDiem" => "",
-                "Address_found" => (string)($fallback["Address_found"] ?? ""),
-                "Latitude" => $lat,
-                "Longitude" => $lon,
-                "distance_m" => null,
-            ];
+            $result['Address_found'] = trim(implode(', ', array_filter([
+                $result['TenDuong'],
+                $result['Phuong'],
+                $result['QuanHuyen'],
+                $result['TinhThanh'],
+            ])));
+            return $result;
         }
     }
+
     private function extractWard(array $address): string
     {
         return (string)(
@@ -487,30 +509,511 @@ class GisService
         ];
 
         $response = @file_get_contents($url, false, stream_context_create($opts));
+
         if ($response === false) {
             return [
-                "Phuong" => "",
+                "TenDuong" => "",
+                "TinhThanh" => "",
                 "QuanHuyen" => "",
-                "Address_found" => "",
+                "Address_found" => ""
             ];
         }
 
         $json = json_decode($response, true);
         if (!is_array($json)) {
             return [
-                "Phuong" => "",
+                "TenDuong" => "",
+                "TinhThanh" => "",
                 "QuanHuyen" => "",
-                "Address_found" => "",
+                "Address_found" => ""
             ];
         }
 
         $address = $json["address"] ?? [];
 
         return [
-            "TenDuong" => $this->normalizeRoadName((string)($address["road"] ?? $address["pedestrian"] ?? $address["path"] ?? "")),
-            "Phuong" => $this->extractWard($address),
-            "QuanHuyen" => $this->extractDistrict($address),
-            "Address_found" => (string)($json["display_name"] ?? ""),
+            "TenDuong" => $this->normalizeRoadName(
+                (string)($address["road"] ?? $address["pedestrian"] ?? $address["path"] ?? "")
+            ),
+            "TinhThanh" => (string)(
+                $address["state"] ?? $address["province"] ?? $address["city"] ?? ""
+            ),
+            "QuanHuyen" => (string)(
+                $address["city_district"] ?? $address["county"] ?? $address["municipality"] ?? ""
+            ),
+            "Address_found" => (string)($json["display_name"] ?? "")
+        ];
+    }
+    private function lookupWardDistrictFromGeojson(
+        float $lat,
+        float $lon
+    ): array
+    {
+        static $featuresCache = null;
+
+        if ($featuresCache === null) {
+
+            $paths = [
+                __DIR__ . '/../public/data/wards.geojson',
+                dirname(__DIR__) . '/public/data/wards.geojson',
+            ];
+
+            $file = null;
+
+            foreach ($paths as $p) {
+                if (is_file($p)) {
+                    $file = $p;
+                    break;
+                }
+            }
+
+            if (!$file) {
+                return $this->emptyAdmin();
+            }
+
+            $geo = json_decode(file_get_contents($file), true);
+
+            if (!is_array($geo)) {
+                return $this->emptyAdmin();
+            }
+
+            $featuresCache = $geo['features'] ?? [];
+        }
+
+        $nearestFeature = null;
+        $nearestDistance = PHP_FLOAT_MAX;
+
+        foreach ($featuresCache as $feature) {
+
+            $geometry = $feature['geometry'] ?? null;
+
+            if (!$geometry) {
+                continue;
+            }
+
+            //-----------------------------------
+            // polygon chứa điểm
+            //-----------------------------------
+
+            if ($this->pointInPolygon($lat, $lon, $geometry)) {
+
+                return $this->extractGeojsonWardNames(
+                    $feature['properties'] ?? []
+                );
+            }
+
+            //-----------------------------------
+            // nếu không chứa thì tính khoảng cách
+            //-----------------------------------
+
+            $center = $this->getGeometryRepresentativePoint($geometry);
+
+            if (!$center) {
+                continue;
+            }
+
+            $d = $this->distanceMeters(
+                $lat,
+                $lon,
+                $center['lat'],
+                $center['lon']
+            );
+
+            if ($d < $nearestDistance) {
+
+                $nearestDistance = $d;
+                $nearestFeature = $feature;
+            }
+        }
+
+        //-----------------------------------
+        // fallback polygon gần nhất
+        //-----------------------------------
+
+        if ($nearestFeature) {
+
+            return $this->extractGeojsonWardNames(
+                $nearestFeature['properties'] ?? []
+            );
+        }
+
+        return $this->emptyAdmin();
+    }
+
+    private function rayCast(
+        float $pointLon,
+        float $pointLat,
+        array $ring
+    ): bool {
+
+        $inside = false;
+        $n = count($ring);
+
+        if ($n < 3) {
+            return false;
+        }
+
+        for ($i = 0, $j = $n - 1; $i < $n; $j = $i++) {
+
+            if (
+                !isset($ring[$i][0], $ring[$i][1]) ||
+                !isset($ring[$j][0], $ring[$j][1])
+            ) {
+                continue;
+            }
+
+            $xi = (float)$ring[$i][0];
+            $yi = (float)$ring[$i][1];
+
+            $xj = (float)$ring[$j][0];
+            $yj = (float)$ring[$j][1];
+
+            $intersect =
+                (($yi > $pointLat) != ($yj > $pointLat))
+                &&
+                (
+                    $pointLon
+                    <
+                    ($xj - $xi)
+                    *
+                    ($pointLat - $yi)
+                    /
+                    (($yj - $yi) + 1e-12)
+                    +
+                    $xi
+                );
+
+            if ($intersect) {
+                $inside = !$inside;
+            }
+        }
+
+        return $inside;
+    }
+    private function distanceMeters(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earthRadius = 6371000.0;
+
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+
+        $a = sin($dLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+
+        return 2 * $earthRadius * asin(min(1, sqrt($a)));
+    }
+    private function normalizeWardDisplay(string $tenXa, string $loai): string
+    {
+        $tenXa = trim($tenXa);
+        $loai = mb_strtolower(trim($loai), 'UTF-8');
+
+        if ($tenXa === '') return '';
+
+        if (str_contains($loai, 'phường')) {
+            return 'Phường ' . $tenXa;
+        }
+
+        if (str_contains($loai, 'xã')) {
+            return 'Xã ' . $tenXa;
+        }
+
+        return $tenXa;
+    }
+    private function getGeometryRepresentativePoint(array $geometry): ?array
+    {
+        if (!isset($geometry['type'], $geometry['coordinates'])) {
+            return null;
+        }
+
+        $sumLat = 0.0;
+        $sumLon = 0.0;
+        $count = 0;
+
+        $type = $geometry['type'];
+        $coords = $geometry['coordinates'];
+
+        if ($type === 'Polygon') {
+            $outerRing = $coords[0] ?? [];
+            foreach ($outerRing as $pt) {
+                if (!isset($pt[0], $pt[1])) {
+                    continue;
+                }
+                $sumLon += (float)$pt[0];
+                $sumLat += (float)$pt[1];
+                $count++;
+            }
+        } elseif ($type === 'MultiPolygon') {
+            foreach ($coords as $poly) {
+                $outerRing = $poly[0] ?? [];
+                foreach ($outerRing as $pt) {
+                    if (!isset($pt[0], $pt[1])) {
+                        continue;
+                    }
+                    $sumLon += (float)$pt[0];
+                    $sumLat += (float)$pt[1];
+                    $count++;
+                }
+            }
+        }
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'lat' => $sumLat / $count,
+            'lon' => $sumLon / $count,
+        ];
+    }
+
+
+    private function normalizeDistrictDisplay(string $tenHuyen): array
+    {
+        $tenHuyen = trim($tenHuyen);
+
+        if ($tenHuyen === '') {
+            return ['type' => '', 'display' => ''];
+        }
+
+        // Thủ Đức special case
+        if (str_contains($tenHuyen, 'Thủ Đức')) {
+            return [
+                'type' => 'Thành phố',
+                'display' => 'Thành phố Thủ Đức',
+            ];
+        }
+
+        $rural = ['Bình Chánh', 'Củ Chi', 'Hóc Môn', 'Nhà Bè', 'Cần Giờ'];
+
+        if (in_array($tenHuyen, $rural, true)) {
+            return [
+                'type' => 'Huyện',
+                'display' => 'Huyện ' . $tenHuyen,
+            ];
+        }
+
+        return [
+            'type' => 'Quận',
+            'display' => 'Quận ' . $tenHuyen,
+        ];
+    }
+
+    private function extractGeojsonWardNames(array $props): array
+    {
+        $wardRaw = trim((string)($props['ten_xa'] ?? ''));
+        $wardType = trim((string)($props['loai'] ?? ''));
+
+        $districtRaw = trim((string)($props['ten_huyen'] ?? ''));
+
+        //----------------------------------
+        // phường/xã
+        //----------------------------------
+
+        $wardDisplay = '';
+
+        if (mb_strtolower($wardType) === 'phường') {
+
+            $wardDisplay = 'Phường '.$wardRaw;
+
+        } elseif (mb_strtolower($wardType) === 'xã') {
+
+            $wardDisplay = 'Xã '.$wardRaw;
+
+        } else {
+
+            $wardDisplay = $wardRaw;
+        }
+
+        //----------------------------------
+        // quận huyện
+        //----------------------------------
+
+        $huyenList = [
+            'Bình Chánh',
+            'Củ Chi',
+            'Hóc Môn',
+            'Nhà Bè',
+            'Cần Giờ'
+        ];
+
+        if ($districtRaw === 'Thủ Đức') {
+
+            $districtType = 'Thành phố';
+            $districtDisplay = 'Thành phố Thủ Đức';
+
+        } elseif (in_array($districtRaw, $huyenList, true)) {
+
+            $districtType = 'Huyện';
+            $districtDisplay = 'Huyện '.$districtRaw;
+
+        } else {
+
+            $districtType = 'Quận';
+            $districtDisplay = 'Quận '.$districtRaw;
+        }
+
+        return [
+
+            'Phuong' => $wardDisplay,
+            'PhuongRaw' => $wardRaw,
+            'PhuongLoai' => $wardType,
+
+            'QuanHuyen' => $districtDisplay,
+            'QuanHuyenRaw' => $districtRaw,
+            'QuanHuyenLoai' => $districtType,
+
+            'TinhThanh' => 'Hồ Chí Minh'
+        ];
+    }
+
+    private function pick(array $arr, array $keys): string
+    {
+        foreach ($keys as $k) {
+            if (!empty($arr[$k])) {
+                return (string)$arr[$k];
+            }
+        }
+        return '';
+    }
+
+    private function pointInPolygon(
+        float $lat,
+        float $lon,
+        array $geometry
+    ): bool
+    {
+        if (
+            empty($geometry['type']) ||
+            empty($geometry['coordinates'])
+        ) {
+            return false;
+        }
+
+        $pointLon = $lon;
+        $pointLat = $lat;
+
+        if ($geometry['type'] === 'Polygon') {
+
+            $outerRing = $geometry['coordinates'][0] ?? [];
+
+            return $this->rayCast(
+                $pointLon,
+                $pointLat,
+                $outerRing
+            );
+        }
+
+        if ($geometry['type'] === 'MultiPolygon') {
+
+            foreach ($geometry['coordinates'] as $polygon) {
+
+                $outerRing = $polygon[0] ?? [];
+
+                if (
+                    $this->rayCast(
+                        $pointLon,
+                        $pointLat,
+                        $outerRing
+                    )
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    private function emptyAdmin(): array
+    {
+        return [
+
+            'Phuong' => 'Không rõ',
+            'PhuongRaw' => '',
+            'PhuongLoai' => '',
+
+            'QuanHuyen' => 'Không rõ',
+            'QuanHuyenRaw' => '',
+            'QuanHuyenLoai' => '',
+
+            'TinhThanh' => 'Hồ Chí Minh',
+        ];
+    }
+    private function debugGeojson(
+        float $lat,
+        float $lon
+    ): array
+    {
+        $paths = [
+            __DIR__.'/../data/wards.geojson',
+            __DIR__.'/../../data/wards.geojson',
+            dirname(__DIR__).'/data/wards.geojson',
+        ];
+
+        $file = null;
+
+        foreach ($paths as $p) {
+            if (is_file($p)) {
+                $file = $p;
+                break;
+            }
+        }
+
+        if (!$file) {
+            return [
+                'error' => 'Không tìm thấy file wards.geojson'
+            ];
+        }
+
+        $geo = json_decode(file_get_contents($file), true);
+
+        if (!is_array($geo)) {
+            return [
+                'error' => 'JSON lỗi'
+            ];
+        }
+
+        $features = $geo['features'] ?? [];
+
+        $result = [];
+
+        foreach ($features as $i => $feature) {
+
+            $geometry = $feature['geometry'] ?? [];
+
+            $inside = $this->pointInPolygon(
+                $lat,
+                $lon,
+                $geometry
+            );
+
+            if ($inside) {
+
+                return [
+                    'matched_feature' => $i,
+                    'properties' => $feature['properties'] ?? [],
+                    'geometry_type' => $geometry['type'] ?? ''
+                ];
+            }
+
+            if ($i < 10) {
+
+                $center = $this->getGeometryRepresentativePoint(
+                    $geometry
+                );
+
+                $result[] = [
+                    'index' => $i,
+                    'ten_xa' => $feature['properties']['ten_xa'] ?? '',
+                    'ten_huyen' => $feature['properties']['ten_huyen'] ?? '',
+                    'geometry_type' => $geometry['type'] ?? '',
+                    'center' => $center
+                ];
+            }
+        }
+
+        return [
+            'not_found' => true,
+            'sample_features' => $result
         ];
     }
 }

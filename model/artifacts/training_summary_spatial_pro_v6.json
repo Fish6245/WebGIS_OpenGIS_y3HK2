@@ -1,0 +1,274 @@
+{
+  "GiaDat2019": {
+    "target_col": "GiaDat2019",
+    "model_path": "model\\artifacts\\catboost_spatial_GiaDat2019.cbm",
+    "meta_path": "model\\artifacts\\catboost_spatial_GiaDat2019_meta.json",
+    "features_path": "model\\artifacts\\model_GiaDat2019_features.json",
+    "cv_average_metrics": {
+      "R2": 0.8311807933647588,
+      "RMSE": 5999.9807155752005,
+      "MAE": 2868.4336047699994,
+      "MAPE_percent": 16.09362243694055,
+      "ACC10": 0.5964899647419483,
+      "ACC20": 0.7183119923423967
+    },
+    "pure_model_holdout_metrics": {
+      "R2": 0.7613718581793135,
+      "RMSE": 13560.965396445514,
+      "MAE": 4884.394389416114,
+      "MAPE_percent": 17.36166008226715,
+      "ACC10": 0.5759055759055759,
+      "ACC20": 0.7077737077737077
+    },
+    "hybrid_test_summary": {
+      "total_test_rows": 2457,
+      "lookup_hit_rate": 0.7260887260887261,
+      "lookup_branch_count": 1784,
+      "model_branch_count": 673,
+      "lookup_branch_metrics": {
+        "R2": 0.9246509045291208,
+        "RMSE": 6426.434191909042,
+        "MAE": 1992.1038161511676,
+        "MAPE_percent": 4.835759302850431,
+        "ACC10": 0.8794843049327354,
+        "ACC20": 0.9355381165919282
+      },
+      "model_branch_metrics": {
+        "R2": 0.6653105851498131,
+        "RMSE": 21282.679884007895,
+        "MAE": 8207.298701930984,
+        "MAPE_percent": 39.726617493005556,
+        "ACC10": 0.2213967310549777,
+        "ACC20": 0.32392273402674593
+      },
+      "hybrid_metrics": {
+        "R2": 0.8000976791718613,
+        "RMSE": 12411.912239487703,
+        "MAE": 3694.5157649219523,
+        "MAPE_percent": 14.392758717573425,
+        "ACC10": 0.6992266992266992,
+        "ACC20": 0.7680097680097681
+      }
+    },
+    "top_features": [
+      {
+        "feature": "QuanHuyen_",
+        "importance": 26.79011148591822
+      },
+      {
+        "feature": "district_ward_key",
+        "importance": 18.785890610102463
+      },
+      {
+        "feature": "district_len",
+        "importance": 6.481898042468133
+      },
+      {
+        "feature": "Y",
+        "importance": 6.310945950769904
+      },
+      {
+        "feature": "y_round_3",
+        "importance": 6.145014382162796
+      },
+      {
+        "feature": "X",
+        "importance": 5.153456024388587
+      },
+      {
+        "feature": "x_round_3",
+        "importance": 5.14573908261236
+      },
+      {
+        "feature": "TenDuong_prefix",
+        "importance": 4.5034039617546275
+      },
+      {
+        "feature": "road_key_len",
+        "importance": 3.824244685439259
+      },
+      {
+        "feature": "Phuong_",
+        "importance": 3.653990071459923
+      },
+      {
+        "feature": "road_name_len",
+        "importance": 3.2592870267403495
+      },
+      {
+        "feature": "road_key",
+        "importance": 2.7169287258963224
+      },
+      {
+        "feature": "road_district_key",
+        "importance": 1.6140151794620796
+      },
+      {
+        "feature": "TenDuong_suffix",
+        "importance": 1.608504965964516
+      },
+      {
+        "feature": "road_key_word_count",
+        "importance": 1.4836627716783692
+      },
+      {
+        "feature": "road_name_word_count",
+        "importance": 0.7892780696813467
+      },
+      {
+        "feature": "district_word_count",
+        "importance": 0.5647766548564701
+      },
+      {
+        "feature": "ward_len",
+        "importance": 0.5469198116169711
+      },
+      {
+        "feature": "ward_word_count",
+        "importance": 0.415550073549829
+      },
+      {
+        "feature": "road_full_key",
+        "importance": 0.2042207574359879
+      }
+    ],
+    "train_rows": 9111,
+    "test_rows": 2457
+  },
+  "GiaDat2025": {
+    "target_col": "GiaDat2025",
+    "model_path": "model\\artifacts\\catboost_spatial_GiaDat2025.cbm",
+    "meta_path": "model\\artifacts\\catboost_spatial_GiaDat2025_meta.json",
+    "features_path": "model\\artifacts\\model_GiaDat2025_features.json",
+    "cv_average_metrics": {
+      "R2": 0.7316336925733966,
+      "RMSE": 30443.81884694694,
+      "MAE": 14060.623471696785,
+      "MAPE_percent": 12.23771131615041,
+      "ACC10": 0.6856591104496531,
+      "ACC20": 0.8076640211374295
+    },
+    "pure_model_holdout_metrics": {
+      "R2": 0.7233282790850444,
+      "RMSE": 64186.42172781219,
+      "MAE": 27061.10552479419,
+      "MAPE_percent": 23.20193729042897,
+      "ACC10": 0.6115308151093439,
+      "ACC20": 0.7669980119284294
+    },
+    "hybrid_test_summary": {
+      "total_test_rows": 2515,
+      "lookup_hit_rate": 0.7053677932405567,
+      "lookup_branch_count": 1774,
+      "model_branch_count": 741,
+      "lookup_branch_metrics": {
+        "R2": 0.9296130123782088,
+        "RMSE": 30156.949892422246,
+        "MAE": 10851.502689537114,
+        "MAPE_percent": 4.444444691970305,
+        "ACC10": 0.8799323562570462,
+        "ACC20": 0.9430665163472379
+      },
+      "model_branch_metrics": {
+        "R2": 0.6526044026706583,
+        "RMSE": 81527.34756498689,
+        "MAE": 44423.53174058627,
+        "MAPE_percent": 58.57425997486485,
+        "ACC10": 0.26450742240215924,
+        "ACC20": 0.47908232118758437
+      },
+      "hybrid_metrics": {
+        "R2": 0.8254087037114421,
+        "RMSE": 50988.481025177134,
+        "MAE": 20742.90369423987,
+        "MAPE_percent": 20.392831620250565,
+        "ACC10": 0.6986083499005964,
+        "ACC20": 0.806361829025845
+      }
+    },
+    "top_features": [
+      {
+        "feature": "QuanHuyen_",
+        "importance": 16.14693146595519
+      },
+      {
+        "feature": "district_ward_key",
+        "importance": 14.839567065807111
+      },
+      {
+        "feature": "y_round_3",
+        "importance": 13.479040893348566
+      },
+      {
+        "feature": "Y",
+        "importance": 10.708232759142444
+      },
+      {
+        "feature": "X",
+        "importance": 5.428276663412341
+      },
+      {
+        "feature": "road_key_len",
+        "importance": 5.197762456391269
+      },
+      {
+        "feature": "TenDuong_suffix",
+        "importance": 4.645700120478064
+      },
+      {
+        "feature": "TenDuong_prefix",
+        "importance": 4.463186802226006
+      },
+      {
+        "feature": "road_name_len",
+        "importance": 4.395219622624668
+      },
+      {
+        "feature": "road_full_key",
+        "importance": 3.8431126591374465
+      },
+      {
+        "feature": "road_district_key",
+        "importance": 3.8383359928426177
+      },
+      {
+        "feature": "district_len",
+        "importance": 3.487835862018883
+      },
+      {
+        "feature": "x_round_3",
+        "importance": 3.391878740372565
+      },
+      {
+        "feature": "Phuong_",
+        "importance": 2.6710060153449295
+      },
+      {
+        "feature": "road_name_word_count",
+        "importance": 1.7177522207459568
+      },
+      {
+        "feature": "road_key_word_count",
+        "importance": 1.5363164962837583
+      },
+      {
+        "feature": "road_ward_key",
+        "importance": 0.1940211179623917
+      },
+      {
+        "feature": "ward_len",
+        "importance": 0.01284546209160889
+      },
+      {
+        "feature": "TenDuong_",
+        "importance": 0.001986777656134157
+      },
+      {
+        "feature": "road_key",
+        "importance": 0.0009228897032784135
+      }
+    ],
+    "train_rows": 8117,
+    "test_rows": 2515
+  }
+}

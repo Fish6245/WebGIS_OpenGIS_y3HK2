@@ -8,12 +8,9 @@
   "test_cluster_fraction": 0.2,
   "n_splits_cv": 5,
   "feature_cols": [
-    "TenDuong",
-    "QuanHuyen",
-    "Phuong",
-    "ThanhPho",
-    "TinhThanh",
-    "QuocGia",
+    "TenDuong_",
+    "QuanHuyen_",
+    "Phuong_",
     "X",
     "Y",
     "road_count",
@@ -39,12 +36,9 @@
     "y_round_3"
   ],
   "cat_cols": [
-    "TenDuong",
-    "QuanHuyen",
-    "Phuong",
-    "ThanhPho",
-    "TinhThanh",
-    "QuocGia",
+    "TenDuong_",
+    "QuanHuyen_",
+    "Phuong_",
     "road_key",
     "road_district_key",
     "road_ward_key",
@@ -53,26 +47,56 @@
     "TenDuong_prefix",
     "TenDuong_suffix"
   ],
-  "holdout_metrics": {
-    "R2": 0.6942900284275486,
-    "Pearson_r": 0.8736823745157362,
-    "Pearson_p_value": 0.0,
-    "MSE": 4552303030.229643,
-    "RMSE": 67470.75685235525,
-    "MAE": 28836.40456799181,
-    "MAPE_percent": 25.02633881321318
+  "pure_model_holdout_metrics": {
+    "R2": 0.7233282790850444,
+    "RMSE": 64186.42172781219,
+    "MAE": 27061.10552479419,
+    "MAPE_percent": 23.20193729042897,
+    "ACC10": 0.6115308151093439,
+    "ACC20": 0.7669980119284294
+  },
+  "hybrid_test_summary": {
+    "total_test_rows": 2515,
+    "lookup_hit_rate": 0.7053677932405567,
+    "lookup_branch_count": 1774,
+    "model_branch_count": 741,
+    "lookup_branch_metrics": {
+      "R2": 0.9296130123782088,
+      "RMSE": 30156.949892422246,
+      "MAE": 10851.502689537114,
+      "MAPE_percent": 4.444444691970305,
+      "ACC10": 0.8799323562570462,
+      "ACC20": 0.9430665163472379
+    },
+    "model_branch_metrics": {
+      "R2": 0.6526044026706583,
+      "RMSE": 81527.34756498689,
+      "MAE": 44423.53174058627,
+      "MAPE_percent": 58.57425997486485,
+      "ACC10": 0.26450742240215924,
+      "ACC20": 0.47908232118758437
+    },
+    "hybrid_metrics": {
+      "R2": 0.8254087037114421,
+      "RMSE": 50988.481025177134,
+      "MAE": 20742.90369423987,
+      "MAPE_percent": 20.392831620250565,
+      "ACC10": 0.6986083499005964,
+      "ACC20": 0.806361829025845
+    }
   },
   "cv_average_metrics": {
-    "R2": 0.8556264397855207,
-    "Pearson_r": 0.9351624208587499,
-    "Pearson_p_value": 0.0,
-    "MSE": 1239748854.333327,
-    "RMSE": 29808.813540856343,
-    "MAE": 13653.60770146421,
-    "MAPE_percent": 10.235763829253354
+    "R2": 0.7316336925733966,
+    "RMSE": 30443.81884694694,
+    "MAE": 14060.623471696785,
+    "MAPE_percent": 12.23771131615041,
+    "ACC10": 0.6856591104496531,
+    "ACC20": 0.8076640211374295
   },
   "train_rows": 8117,
   "test_rows": 2515,
+  "train_lookup_source_rows": 8117,
+  "test_rows_for_eval": 2515,
   "train_clusters": [
     0,
     1,
@@ -136,6 +160,5 @@
     30,
     31,
     55
-  ],
-  "schema_note": "Feature schema được chuẩn hoá để API predict có thể reindex theo feature_cols mà không bị lỗi thiếu cột. Các cột không có ở runtime sẽ tự fill rỗng/0."
+  ]
 }

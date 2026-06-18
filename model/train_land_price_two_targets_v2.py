@@ -1,33 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-train_land_price_two_targets_v2.py
-
-Mục tiêu:
-- Giữ nguyên 2 target: GiaDat2019, GiaDat2025
-- Giữ spatial holdout + GroupKFold để tránh leakage không gian
-- Tối ưu để KHỚP với API predict hiện tại:
-  * API gửi: Latitude, Longitude, TenDuong, Phuong, QuanHuyen, nearbyRoads, nearbyPlaces
-  * Script này chuẩn hoá dữ liệu để train và predict dùng cùng schema
-- Ưu tiên tăng trọng số cho TenDuong / QuanHuyen / Phuong bằng feature engineering,
-  nhưng không thêm feature “lạ” khiến API không match được.
-
-Chạy:
-    python train_land_price_two_targets_v2.py
-
-Có thể ghi đè đường dẫn bằng biến môi trường:
-    LAND_PRICE_EXCEL=./model/HCM.xlsx
-    LAND_PRICE_SHEET=road_giadat_tphcm
-    LAND_PRICE_MODEL_DIR=./model/artifacts
-
-Cài đặt:
-    pip install pandas numpy scikit-learn scipy catboost joblib openpyxl
-"""
-
 from __future__ import annotations
 
 import json
 import math
-import os
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -36,116 +10,229 @@ import joblib
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor, Pool
-from scipy.stats import pearsonr
 from sklearn.cluster import KMeans
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupKFold
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 warnings.filterwarnings("ignore")
 
 # =========================
-# Config
+# CONFIG
 # =========================
-EXCEL_PATH = Path(os.environ.get("LAND_PRICE_EXCEL", "./model/HCM.xlsx"))
-SHEET_NAME = os.environ.get("LAND_PRICE_SHEET", "road_giadat_tphcm")
-MODEL_DIR = Path(os.environ.get("LAND_PRICE_MODEL_DIR", "./model/artifacts"))
+MODEL_DIR = Path("./model/artifacts")
+EXCEL_FILE = Path("./model/HCM.xlsx")
+SHEET_NAME = "road_giadat_tphcm"
 
-TARGET_COLS = ["GiaDat2019", "GiaDat2025"]
+TARGETS = ["GiaDat2019", "GiaDat2025"]
 
 RANDOM_STATE = 42
 N_CLUSTERS = 60
 TEST_CLUSTER_FRACTION = 0.20
 N_SPLITS_CV = 5
-
 USE_LOG_TARGET = True
 MIN_TARGET_VALUE = 1e-9
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # =========================
-# Helpers
+# SERVICE-SYNC HELPERS
 # =========================
-def normalize_text(value) -> str:
-    """Chuẩn hoá giống API: không đổi case, chỉ dọn khoảng trắng."""
-    if pd.isna(value):
+def normalize_text(s):
+    if pd.isna(s):
         return ""
-    s = str(value)
+    s = str(s)
     s = s.replace("\n", " ").replace("\r", " ")
-    s = " ".join(s.split())
-    return s.strip()
+    return " ".join(s.split()).strip()
 
 
-def safe_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series, errors="coerce")
+def safe_numeric(s):
+    if isinstance(s, pd.Series):
+        s = s.astype(str).str.replace(",", "", regex=False).str.replace(" ", "", regex=False)
+    return pd.to_numeric(s, errors="coerce")
 
 
-def safe_mean(values: List[Optional[float]]) -> Optional[float]:
-    arr = [v for v in values if v is not None and np.isfinite(v)]
-    return float(np.mean(arr)) if arr else None
+def safe_col(df: pd.DataFrame, col: str) -> pd.Series:
+    if col in df.columns:
+        return df[col].fillna("").astype(str)
+    return pd.Series([""] * len(df), index=df.index)
 
 
-def compute_metrics(y_true, y_pred) -> Dict[str, Optional[float]]:
-    y_true = np.asarray(y_true, dtype=float)
-    y_pred = np.asarray(y_pred, dtype=float)
+def sync_pair(df: pd.DataFrame, left: str, right: str) -> pd.DataFrame:
+    if left in df.columns and right in df.columns:
+        df[left] = df[left].where(df[left].notna(), df[right])
+        df[right] = df[right].where(df[right].notna(), df[left])
+    elif left in df.columns and right not in df.columns:
+        df[right] = df[left]
+    elif right in df.columns and left not in df.columns:
+        df[left] = df[right]
+    return df
 
-    mse = mean_squared_error(y_true, y_pred)
-    rmse = math.sqrt(mse)
-    mae = mean_absolute_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
 
-    try:
-        r, p = pearsonr(y_true, y_pred)
-        if not np.isfinite(r):
-            r = None
-        if not np.isfinite(p):
-            p = None
-    except Exception:
-        r, p = None, None
+def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
 
-    denom = np.where(np.abs(y_true) < 1e-12, np.nan, y_true)
-    mape = np.nanmean(np.abs((y_true - y_pred) / denom)) * 100.0
+    # keep same behavior as service, but make sure both sides exist
+    pairs = [
+        ("TenDuong", "TenDuong_"),
+        ("QuanHuyen", "QuanHuyen_"),
+        ("Phuong", "Phuong_"),
+        ("ThanhPho", "ThanhPho_"),
+        ("TinhThanh", "TinhThanh_"),
+        ("QuocGia", "QuocGia_"),
+    ]
 
-    return {
-        "R2": float(r2),
-        "Pearson_r": None if r is None else float(r),
-        "Pearson_p_value": None if p is None else float(p),
-        "MSE": float(mse),
-        "RMSE": float(rmse),
-        "MAE": float(mae),
-        "MAPE_percent": float(mape),
+    for left, right in pairs:
+        df = sync_pair(df, left, right)
+        if left not in df.columns and right not in df.columns:
+            df[left] = ""
+            df[right] = ""
+
+    if "X" not in df.columns:
+        if "Longitude" in df.columns:
+            df["X"] = df["Longitude"]
+        else:
+            df["X"] = np.nan
+
+    if "Y" not in df.columns:
+        if "Latitude" in df.columns:
+            df["Y"] = df["Latitude"]
+        else:
+            df["Y"] = np.nan
+
+    # runtime optional fields must always exist
+    for col in [
+        "road_count",
+        "place_count",
+        "nearest_road_distance",
+        "nearest_place_distance",
+    ]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    return df
+
+
+def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Identical spirit to service: same raw text columns, same derived features,
+    same runtime placeholders.
+    """
+    df = canonicalize_columns(df).copy()
+
+    for c in [
+        "TenDuong_",
+        "QuanHuyen_",
+        "Phuong_",
+        "ThanhPho_",
+        "TinhThanh_",
+        "QuocGia_",
+    ]:
+        df[c] = safe_col(df, c).map(normalize_text)
+
+    for c in [
+        "X",
+        "Y",
+        "road_count",
+        "place_count",
+        "nearest_road_distance",
+        "nearest_place_distance",
+    ]:
+        df[c] = safe_numeric(df[c])
+
+    road_name = safe_col(df, "TenDuong_")
+    district_name = safe_col(df, "QuanHuyen_")
+    ward_name = safe_col(df, "Phuong_")
+    city_name = safe_col(df, "ThanhPho_")
+    province_name = safe_col(df, "TinhThanh_")
+
+    df["road_key"] = (road_name + "|" + district_name + "|" + ward_name).map(normalize_text)
+    df["road_district_key"] = (road_name + "|" + district_name).map(normalize_text)
+    df["road_ward_key"] = (road_name + "|" + ward_name).map(normalize_text)
+    df["district_ward_key"] = (district_name + "|" + ward_name).map(normalize_text)
+    df["road_full_key"] = (
+        road_name + "|" + district_name + "|" + ward_name + "|" + city_name + "|" + province_name
+    ).map(normalize_text)
+
+    def first_token(x: str) -> str:
+        x = normalize_text(x)
+        return x.split()[0] if x else ""
+
+    def last_token(x: str) -> str:
+        x = normalize_text(x)
+        return x.split()[-1] if x else ""
+
+    df["TenDuong_prefix"] = road_name.map(first_token)
+    df["TenDuong_suffix"] = road_name.map(last_token)
+
+    df["road_name_len"] = road_name.astype(str).str.len()
+    df["road_name_word_count"] = road_name.astype(str).str.split().str.len()
+
+    df["district_len"] = district_name.astype(str).str.len()
+    df["district_word_count"] = district_name.astype(str).str.split().str.len()
+
+    df["ward_len"] = ward_name.astype(str).str.len()
+    df["ward_word_count"] = ward_name.astype(str).str.split().str.len()
+
+    df["road_key_len"] = df["road_key"].astype(str).str.len()
+    df["road_key_word_count"] = df["road_key"].astype(str).str.split().str.len()
+
+    df["x_round_3"] = pd.to_numeric(df["X"], errors="coerce").round(3)
+    df["y_round_3"] = pd.to_numeric(df["Y"], errors="coerce").round(3)
+
+    for c in df.columns:
+        if df[c].dtype == "object":
+            df[c] = df[c].fillna("").astype(str)
+
+    return df
+
+
+def create_runtime_features(payload: dict) -> dict:
+    roads = payload.get("nearbyRoads") or []
+    places = payload.get("nearbyPlaces") or []
+
+    row = {
+        "TenDuong": payload.get("TenDuong") or "",
+        "TenDuong_": payload.get("TenDuong") or "",
+        "QuanHuyen": payload.get("QuanHuyen") or "",
+        "QuanHuyen_": payload.get("QuanHuyen") or "",
+        "Phuong": payload.get("Phuong") or "",
+        "Phuong_": payload.get("Phuong") or "",
+        "ThanhPho": payload.get("ThanhPho") or "",
+        "ThanhPho_": payload.get("ThanhPho") or "",
+        "TinhThanh": payload.get("TinhThanh") or "",
+        "TinhThanh_": payload.get("TinhThanh") or "",
+        "QuocGia": payload.get("QuocGia") or "VN",
+        "QuocGia_": payload.get("QuocGia") or "VN",
+        "X": payload.get("Longitude"),
+        "Y": payload.get("Latitude"),
+        "road_count": len(roads),
+        "place_count": len(places),
+        "nearest_road_distance": np.nan,
+        "nearest_place_distance": np.nan,
     }
 
+    if roads:
+        row["nearest_road_distance"] = min(float(r.get("distance_m", 999999)) for r in roads)
 
-def split_words(value: str) -> int:
-    value = normalize_text(value)
-    return 0 if not value else len(value.split())
+    if places:
+        row["nearest_place_distance"] = min(float(p.get("distance_m", 999999)) for p in places)
+
+    return row
 
 
 # =========================
-# Canonical schema
+# FEATURE SCHEMA
 # =========================
-# Ưu tiên các feature mà API có thể cung cấp trực tiếp hoặc suy ra an toàn.
-# Những cột trong Excel không có ở API (fclass, name, ref, bridge, tunnel, ...)
-# sẽ không đưa vào để tránh train/predict mismatch.
-CANONICAL_TEXT_COLS = [
-    "TenDuong",
-    "QuanHuyen",
-    "Phuong",
-    "ThanhPho",
-    "TinhThanh",
-    "QuocGia",
-]
-
-CANONICAL_NUMERIC_COLS = [
+FEATURE_COLS = [
+    "TenDuong_",
+    "QuanHuyen_",
+    "Phuong_",
     "X",
     "Y",
     "road_count",
     "place_count",
     "nearest_road_distance",
     "nearest_place_distance",
-]
-
-DERIVED_TEXT_COLS = [
     "road_key",
     "road_district_key",
     "road_ward_key",
@@ -153,9 +240,6 @@ DERIVED_TEXT_COLS = [
     "road_full_key",
     "TenDuong_prefix",
     "TenDuong_suffix",
-]
-
-DERIVED_NUMERIC_COLS = [
     "road_name_len",
     "road_name_word_count",
     "district_len",
@@ -168,171 +252,65 @@ DERIVED_NUMERIC_COLS = [
     "y_round_3",
 ]
 
-ALL_FEATURE_COLS = CANONICAL_TEXT_COLS + CANONICAL_NUMERIC_COLS + DERIVED_TEXT_COLS + DERIVED_NUMERIC_COLS
-
-# cột không được dùng làm feature
-DEFAULT_DROP_COLS = {
-    "fid",
-    "osm_id",
-    "code",
-    "STT",
-    "STT_2",
-    "target_log",
-    "GiaDat2019",
-    "GiaDat2025",
-}
-
-def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Chuẩn hoá tên cột từ Excel / API về schema chung.
-    Không đổi tên feature đã chuẩn nếu cột đó đã tồn tại.
-    """
-    df = df.copy()
-
-    # alias cho ward
-    if "Phuong" not in df.columns and "Phường" in df.columns:
-        df["Phuong"] = df["Phường"]
-    if "Phường" not in df.columns and "Phuong" in df.columns:
-        df["Phường"] = df["Phuong"]
-
-    # alias cho tọa độ nếu có
-    if "X" not in df.columns and "Longitude" in df.columns:
-        df["X"] = df["Longitude"]
-    if "Y" not in df.columns and "Latitude" in df.columns:
-        df["Y"] = df["Latitude"]
-
-    # runtime optional fields
-    if "road_count" not in df.columns:
-        df["road_count"] = np.nan
-    if "place_count" not in df.columns:
-        df["place_count"] = np.nan
-    if "nearest_road_distance" not in df.columns:
-        df["nearest_road_distance"] = np.nan
-    if "nearest_place_distance" not in df.columns:
-        df["nearest_place_distance"] = np.nan
-
-    # optional text fields
-    for col in ["ThanhPho", "TinhThanh", "QuocGia"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    return df
+CAT_COLS = [
+    "TenDuong_",
+    "QuanHuyen_",
+    "Phuong_",
+    "road_key",
+    "road_district_key",
+    "road_ward_key",
+    "district_ward_key",
+    "road_full_key",
+    "TenDuong_prefix",
+    "TenDuong_suffix",
+]
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Tạo feature thống nhất cho train và predict.
-    Feature chỉ dựa trên những gì API có thể gửi + vài đặc trưng suy ra an toàn.
-    """
-    df = canonicalize_columns(df).copy()
+def prepare_model_input(df: pd.DataFrame, feature_cols: list[str], cat_cols: list[str]) -> pd.DataFrame:
+    X = df.reindex(columns=feature_cols).copy()
+    cat_set = set(cat_cols or [])
 
-    # text normalization
-    text_like_cols = [
-        "TenDuong",
-        "QuanHuyen",
-        "Phuong",
-        "ThanhPho",
-        "TinhThanh",
-        "QuocGia",
-    ]
-    for col in text_like_cols:
-        df[col] = df[col].map(normalize_text)
+    for col in X.columns:
+        if col in cat_set:
+            X[col] = X[col].apply(lambda v: "" if pd.isna(v) else normalize_text(v)).astype(str)
+        else:
+            X[col] = pd.to_numeric(X[col], errors="coerce")
 
-    # numeric normalization
-    for col in ["X", "Y", "road_count", "place_count", "nearest_road_distance", "nearest_place_distance"]:
-        df[col] = safe_numeric(df[col])
-
-    # ---- derived text keys ----
-    df["road_key"] = (
-        df["TenDuong"].fillna("") + "|" +
-        df["QuanHuyen"].fillna("") + "|" +
-        df["Phuong"].fillna("")
-    ).map(normalize_text)
-
-    df["road_district_key"] = (
-        df["TenDuong"].fillna("") + "|" +
-        df["QuanHuyen"].fillna("")
-    ).map(normalize_text)
-
-    df["road_ward_key"] = (
-        df["TenDuong"].fillna("") + "|" +
-        df["Phuong"].fillna("")
-    ).map(normalize_text)
-
-    df["district_ward_key"] = (
-        df["QuanHuyen"].fillna("") + "|" +
-        df["Phuong"].fillna("")
-    ).map(normalize_text)
-
-    df["road_full_key"] = (
-        df["TenDuong"].fillna("") + "|" +
-        df["QuanHuyen"].fillna("") + "|" +
-        df["Phuong"].fillna("") + "|" +
-        df["ThanhPho"].fillna("") + "|" +
-        df["TinhThanh"].fillna("")
-    ).map(normalize_text)
-
-    def first_token(s: str) -> str:
-        s = normalize_text(s)
-        return s.split()[0] if s else ""
-
-    def last_token(s: str) -> str:
-        s = normalize_text(s)
-        return s.split()[-1] if s else ""
-
-    df["TenDuong_prefix"] = df["TenDuong"].map(first_token)
-    df["TenDuong_suffix"] = df["TenDuong"].map(last_token)
-
-    # ---- derived numeric features ----
-    df["road_name_len"] = df["TenDuong"].fillna("").astype(str).str.len()
-    df["road_name_word_count"] = df["TenDuong"].fillna("").astype(str).str.split().str.len()
-
-    df["district_len"] = df["QuanHuyen"].fillna("").astype(str).str.len()
-    df["district_word_count"] = df["QuanHuyen"].fillna("").astype(str).str.split().str.len()
-
-    df["ward_len"] = df["Phuong"].fillna("").astype(str).str.len()
-    df["ward_word_count"] = df["Phuong"].fillna("").astype(str).str.split().str.len()
-
-    df["road_key_len"] = df["road_key"].fillna("").astype(str).str.len()
-    df["road_key_word_count"] = df["road_key"].fillna("").astype(str).str.split().str.len()
-
-    # round coord as categorical-like location bucket
-    df["x_round_3"] = df["X"].round(3)
-    df["y_round_3"] = df["Y"].round(3)
-
-    # fill all object dtypes with string
-    for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].fillna("").astype(str)
-
-    return df
+    return X
 
 
-def prepare_target_df(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
+# =========================
+# SPLIT + METRICS
+# =========================
+def clean_target_df(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
     if target_col not in df.columns:
         raise ValueError(f"Không tìm thấy cột mục tiêu: {target_col}")
 
-    work_df = df[df[target_col].notna()].copy()
-    work_df = work_df[work_df[target_col] > MIN_TARGET_VALUE].copy()
+    work = df.copy()
+    work[target_col] = safe_numeric(work[target_col])
+    work = work[work[target_col].notna()].copy()
+    work = work[work[target_col] > MIN_TARGET_VALUE].copy()
 
-    if work_df.empty:
-        raise ValueError(f"Dữ liệu sau khi lọc target {target_col} bị rỗng.")
+    if work.empty:
+        raise ValueError(f"Dữ liệu sau khi làm sạch target {target_col} bị rỗng.")
 
     if USE_LOG_TARGET:
-        work_df["target_log"] = np.log1p(work_df[target_col].astype(float))
+        work["target_log"] = np.log1p(work[target_col].astype(float))
     else:
-        work_df["target_log"] = work_df[target_col].astype(float)
+        work["target_log"] = work[target_col].astype(float)
 
-    return work_df
+    return work
 
 
 def add_spatial_clusters(df: pd.DataFrame, n_clusters: int = N_CLUSTERS) -> Tuple[pd.DataFrame, KMeans]:
-    if "X" not in df.columns or "Y" not in df.columns:
-        raise ValueError("Cần có cả cột X và Y để tạo spatial clusters.")
+    if len(df) < 2:
+        raise ValueError("Dữ liệu quá ít để tạo spatial clusters.")
 
     coords = df[["X", "Y"]].copy()
-    coords["X"] = coords["X"].fillna(coords["X"].median())
-    coords["Y"] = coords["Y"].fillna(coords["Y"].median())
+    coords["X"] = coords["X"].fillna(coords["X"].median() if pd.notna(coords["X"].median()) else 0)
+    coords["Y"] = coords["Y"].fillna(coords["Y"].median() if pd.notna(coords["Y"].median()) else 0)
+
+    n_clusters = min(n_clusters, len(df))
 
     kmeans = KMeans(
         n_clusters=n_clusters,
@@ -346,11 +324,6 @@ def add_spatial_clusters(df: pd.DataFrame, n_clusters: int = N_CLUSTERS) -> Tupl
 
 
 def spatial_holdout_split(df: pd.DataFrame, test_cluster_fraction: float = TEST_CLUSTER_FRACTION) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Chọn cụm test theo cách ổn định:
-    - shuffle cụm
-    - cộng dồn theo kích thước cụm đến khi đạt gần tỉ lệ mong muốn
-    """
     if "cluster" not in df.columns:
         raise ValueError("Thiếu cột cluster.")
 
@@ -374,71 +347,227 @@ def spatial_holdout_split(df: pd.DataFrame, test_cluster_fraction: float = TEST_
     train_df = df[~df["cluster"].isin(test_clusters)].copy()
     test_df = df[df["cluster"].isin(test_clusters)].copy()
 
+    if train_df.empty or test_df.empty:
+        # fallback random split if cluster split becomes degenerate
+        shuffled = df.sample(frac=1.0, random_state=RANDOM_STATE)
+        split_idx = int(len(shuffled) * (1 - test_cluster_fraction))
+        train_df = shuffled.iloc[:split_idx].copy()
+        test_df = shuffled.iloc[split_idx:].copy()
+
     return train_df, test_df
 
 
-def select_feature_cols(df: pd.DataFrame, target_col: str) -> Tuple[List[str], List[str]]:
-    drop_cols = set(DEFAULT_DROP_COLS)
-    drop_cols.discard(target_col)
+def compute_metrics(y_true, y_pred):
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
 
-    # Không dùng target còn lại làm feature
-    for t in TARGET_COLS:
-        if t != target_col:
-            drop_cols.add(t)
+    if len(y_true) == 0:
+        return None
 
-    # Chỉ giữ feature trong schema chuẩn
-    feature_cols = [c for c in ALL_FEATURE_COLS if c in df.columns and c not in drop_cols]
-    cat_cols = [c for c in feature_cols if df[c].dtype == "object"]
-    return feature_cols, cat_cols
+    mse = np.mean((y_true - y_pred) ** 2)
+    rmse = np.sqrt(mse)
+    mae = np.mean(np.abs(y_true - y_pred))
+
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    r2 = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
+
+    denom = np.abs(y_true) + 1e-9
+    mape = np.mean(np.abs((y_true - y_pred) / denom)) * 100
+
+    acc10 = np.mean(np.abs((y_true - y_pred) / denom) <= 0.1)
+    acc20 = np.mean(np.abs((y_true - y_pred) / denom) <= 0.2)
+
+    return {
+        "R2": float(r2),
+        "RMSE": float(rmse),
+        "MAE": float(mae),
+        "MAPE_percent": float(mape),
+        "ACC10": float(acc10),
+        "ACC20": float(acc20),
+    }
 
 
-def make_catboost_pool(X: pd.DataFrame, y: Optional[pd.Series], cat_cols: List[str]) -> Pool:
-    return Pool(X, y, cat_features=cat_cols)
+def safe_mean(values: List[Optional[float]]) -> Optional[float]:
+    arr = [v for v in values if v is not None and np.isfinite(v)]
+    return float(np.mean(arr)) if arr else None
 
 
+def average_metric_dicts(metric_dicts: List[Optional[Dict[str, float]]]) -> Optional[Dict[str, float]]:
+    clean = [m for m in metric_dicts if isinstance(m, dict)]
+    if not clean:
+        return None
+
+    keys = clean[0].keys()
+    out = {}
+    for k in keys:
+        vals = [m.get(k) for m in clean]
+        out[k] = safe_mean(vals)
+    return out
+
+
+# =========================
+# LOOKUP + EVAL
+# =========================
+def find_best_row_in_df(df: pd.DataFrame, payload: dict) -> Optional[pd.Series]:
+    if df is None:
+        return None
+
+    ten_duong = normalize_text(payload.get("TenDuong") or "")
+    quan_huyen = normalize_text(payload.get("QuanHuyen") or "")
+
+    if not ten_duong or not quan_huyen:
+        return None
+
+    work = canonicalize_columns(df.copy())
+
+    road_col = "TenDuong_" if "TenDuong_" in work.columns else "TenDuong"
+    district_col = "QuanHuyen_" if "QuanHuyen_" in work.columns else "QuanHuyen"
+
+    work[road_col] = work[road_col].fillna("").astype(str).map(normalize_text)
+    work[district_col] = work[district_col].fillna("").astype(str).map(normalize_text)
+
+    mask = (
+        work[road_col].str.lower().str.strip() == ten_duong.lower().strip()
+    ) & (
+        work[district_col].str.lower().str.strip() == quan_huyen.lower().strip()
+    )
+
+    matches = work[mask]
+    if len(matches) == 0:
+        return None
+
+    return matches.iloc[0].copy()
+
+
+def evaluate_hybrid_on_test(
+    model: CatBoostRegressor,
+    test_df_feat: pd.DataFrame,
+    source_df_raw: pd.DataFrame,
+    feature_cols: list[str],
+    cat_cols: list[str],
+    target_col: str,
+) -> Dict:
+    lookup_true, lookup_pred = [], []
+    model_true, model_pred = [], []
+    all_true, all_pred = [], []
+
+    lookup_count = 0
+    model_count = 0
+
+    for _, row in test_df_feat.iterrows():
+        payload = {
+            "TenDuong": row.get("TenDuong_", row.get("TenDuong", "")),
+            "QuanHuyen": row.get("QuanHuyen_", row.get("QuanHuyen", "")),
+            "Phuong": row.get("Phuong_", row.get("Phuong", "")),
+            "Latitude": row.get("Y", None),
+            "Longitude": row.get("X", None),
+            "ThanhPho": row.get("ThanhPho_", row.get("ThanhPho", "")),
+            "TinhThanh": row.get("TinhThanh_", row.get("TinhThanh", "")),
+            "QuocGia": row.get("QuocGia_", row.get("QuocGia", "VN")),
+            "nearbyRoads": [],
+            "nearbyPlaces": [],
+        }
+
+        src = find_best_row_in_df(source_df_raw, payload)
+
+        if src is not None:
+            lookup_count += 1
+            row_df = pd.DataFrame([src])
+        else:
+            model_count += 1
+            row_df = pd.DataFrame([create_runtime_features(payload)])
+
+        row_df = build_features(row_df)
+        X_row = prepare_model_input(row_df, feature_cols, cat_cols)
+
+        pred_log = model.predict(X_row)[0]
+        pred = np.expm1(pred_log) if USE_LOG_TARGET else float(pred_log)
+
+        true_val = safe_numeric(pd.Series([row[target_col]])).iloc[0]
+        if pd.isna(true_val) or true_val <= 0:
+            continue
+
+        true_val = float(true_val)
+
+        all_true.append(true_val)
+        all_pred.append(float(pred))
+
+        if src is not None:
+            lookup_true.append(true_val)
+            lookup_pred.append(float(pred))
+        else:
+            model_true.append(true_val)
+            model_pred.append(float(pred))
+
+    total = len(all_true)
+    lookup_hit_rate = (lookup_count / total) if total > 0 else 0.0
+
+    lookup_metrics = compute_metrics(lookup_true, lookup_pred)
+    model_metrics = compute_metrics(model_true, model_pred)
+    hybrid_metrics = compute_metrics(all_true, all_pred)
+
+    return {
+        "total_test_rows": int(total),
+        "lookup_hit_rate": float(lookup_hit_rate),
+        "lookup_branch_count": int(lookup_count),
+        "model_branch_count": int(model_count),
+        "lookup_branch_metrics": lookup_metrics,
+        "model_branch_metrics": model_metrics,
+        "hybrid_metrics": hybrid_metrics,
+    }
+
+
+# =========================
+# TRAIN ONE TARGET
+# =========================
 def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
     print(f"\n{'=' * 100}")
     print(f"TRAIN TARGET: {target_col}")
     print(f"{'=' * 100}")
 
-    work_df = prepare_target_df(df, target_col)
+    # raw cleaned data
+    work_raw = clean_target_df(df, target_col)
+    work_raw = canonicalize_columns(work_raw)
 
-    # Chuẩn hoá feature trước
-    work_df = build_features(work_df)
+    # feature data
+    work_feat = build_features(work_raw)
 
-    # tạo cụm không gian từ tọa độ thật
-    work_df, kmeans = add_spatial_clusters(work_df, n_clusters=N_CLUSTERS)
+    # spatial clusters on feature data
+    work_feat, kmeans = add_spatial_clusters(work_feat, n_clusters=N_CLUSTERS)
 
-    # chọn feature
-    feature_cols, cat_cols = select_feature_cols(work_df, target_col)
-    if not feature_cols:
-        raise ValueError("Không còn feature nào sau khi loại cột.")
+    # split spatial holdout
+    train_feat, test_feat = spatial_holdout_split(work_feat, test_cluster_fraction=TEST_CLUSTER_FRACTION)
 
-    # debug output
+    # corresponding raw split for lookup source
+    train_raw = work_raw.loc[train_feat.index].copy()
+    test_raw = work_raw.loc[test_feat.index].copy()
+
+    if train_feat.empty or test_feat.empty:
+        raise ValueError("Train/test sau spatial split bị rỗng.")
+
+    feature_cols = FEATURE_COLS[:]
+    cat_cols = CAT_COLS[:]
+
     print("Feature cols:", feature_cols)
     print("Cat cols:", cat_cols)
+    print(f"Train rows: {len(train_feat)} | Test rows: {len(test_feat)}")
 
-    # holdout split theo cluster
-    train_df, test_df = spatial_holdout_split(work_df, test_cluster_fraction=TEST_CLUSTER_FRACTION)
+    X_train = prepare_model_input(train_feat, feature_cols, cat_cols)
+    y_train = train_feat["target_log"].copy()
 
-    if train_df.empty or test_df.empty:
-        raise ValueError("Train/test sau spatial split bị rỗng. Hãy giảm N_CLUSTERS hoặc TEST_CLUSTER_FRACTION.")
+    X_test = prepare_model_input(test_feat, feature_cols, cat_cols)
+    y_test = test_feat["target_log"].copy()
 
-    X_train = train_df[feature_cols].copy()
-    y_train = train_df["target_log"].copy()
-
-    X_test = test_df[feature_cols].copy()
-    y_test = test_df["target_log"].copy()
-
-    train_pool = make_catboost_pool(X_train, y_train, cat_cols)
-    test_pool = make_catboost_pool(X_test, y_test, cat_cols)
+    train_pool = Pool(X_train, y_train, cat_features=cat_cols)
+    test_pool = Pool(X_test, y_test, cat_features=cat_cols)
 
     model = CatBoostRegressor(
         loss_function="RMSE",
         eval_metric="RMSE",
         iterations=5000,
         learning_rate=0.025,
-        depth=10,                 # sâu hơn để học tổ hợp TenDuong + QuanHuyen + Phuong tốt hơn
+        depth=10,
         l2_leaf_reg=6,
         random_seed=RANDOM_STATE,
         subsample=0.88,
@@ -452,7 +581,9 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
 
     model.fit(train_pool, eval_set=test_pool, use_best_model=True)
 
-    # ---- Holdout metrics ----
+    # =========================
+    # PURE MODEL HOLDOUT METRICS
+    # =========================
     pred_test_log = model.predict(X_test)
     if USE_LOG_TARGET:
         y_true_test = np.expm1(np.asarray(y_test, dtype=float))
@@ -461,69 +592,98 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
         y_true_test = np.asarray(y_test, dtype=float)
         y_pred_test = np.asarray(pred_test_log, dtype=float)
 
-    holdout_metrics = compute_metrics(y_true_test, y_pred_test)
+    model_only_holdout_metrics = compute_metrics(y_true_test, y_pred_test)
 
-    print("\n===== SPATIAL HOLD-OUT TEST METRICS =====")
-    print(json.dumps(holdout_metrics, ensure_ascii=False, indent=2))
+    print("\n===== PURE MODEL HOLDOUT METRICS =====")
+    print(json.dumps(model_only_holdout_metrics, ensure_ascii=False, indent=2))
 
-    # ---- GroupKFold CV ----
-    print("\n===== 5-FOLD GROUP CV =====")
-    gkf = GroupKFold(n_splits=N_SPLITS_CV)
-    fold_metrics = []
+    # =========================
+    # HYBRID LOOKUP + MODEL EVAL
+    # =========================
+    print("\n===== LOOKUP / MODEL TEST SUMMARY =====")
+    hybrid_summary = evaluate_hybrid_on_test(
+        model=model,
+        test_df_feat=test_feat,
+        source_df_raw=train_raw,
+        feature_cols=feature_cols,
+        cat_cols=cat_cols,
+        target_col=target_col,
+    )
+    print(json.dumps(hybrid_summary, ensure_ascii=False, indent=2))
 
-    X_all = work_df[feature_cols].reset_index(drop=True)
-    y_all = work_df["target_log"].reset_index(drop=True)
-    groups = work_df["cluster"].reset_index(drop=True)
+    # =========================
+    # GROUP K-FOLD CV (MODEL ONLY)
+    # =========================
+    print("\n===== GROUP K-FOLD CV (MODEL ONLY) =====")
+    cv_metrics = []
 
-    for fold, (tr_idx, va_idx) in enumerate(gkf.split(X_all, y_all, groups), start=1):
-        X_tr, X_va = X_all.iloc[tr_idx], X_all.iloc[va_idx]
-        y_tr, y_va = y_all.iloc[tr_idx], y_all.iloc[va_idx]
+    n_groups = train_feat["cluster"].nunique()
+    n_splits = min(N_SPLITS_CV, n_groups)
 
-        tr_pool = make_catboost_pool(X_tr, y_tr, cat_cols)
-        va_pool = make_catboost_pool(X_va, y_va, cat_cols)
+    if n_splits >= 2:
+        gkf = GroupKFold(n_splits=n_splits)
 
-        fold_model = CatBoostRegressor(
-            loss_function="RMSE",
-            eval_metric="RMSE",
-            iterations=3000,
-            learning_rate=0.025,
-            depth=10,
-            l2_leaf_reg=6,
-            random_seed=RANDOM_STATE,
-            subsample=0.88,
-            rsm=0.88,
-            bagging_temperature=0.4,
-            od_type="Iter",
-            od_wait=180,
-            min_data_in_leaf=15,
-            verbose=False,
-        )
+        X_all = prepare_model_input(train_feat, feature_cols, cat_cols).reset_index(drop=True)
+        y_all = train_feat["target_log"].reset_index(drop=True)
+        groups = train_feat["cluster"].reset_index(drop=True)
 
-        fold_model.fit(tr_pool, eval_set=va_pool, use_best_model=True)
-        pred_va_log = fold_model.predict(X_va)
+        for fold, (tr_idx, va_idx) in enumerate(gkf.split(X_all, y_all, groups), start=1):
+            X_tr, X_va = X_all.iloc[tr_idx], X_all.iloc[va_idx]
+            y_tr, y_va = y_all.iloc[tr_idx], y_all.iloc[va_idx]
 
-        if USE_LOG_TARGET:
-            true_va = np.expm1(np.asarray(y_va, dtype=float))
-            pred_va = np.expm1(np.asarray(pred_va_log, dtype=float))
-        else:
-            true_va = np.asarray(y_va, dtype=float)
-            pred_va = np.asarray(pred_va_log, dtype=float)
+            tr_pool = Pool(X_tr, y_tr, cat_features=cat_cols)
+            va_pool = Pool(X_va, y_va, cat_features=cat_cols)
 
-        m = compute_metrics(true_va, pred_va)
-        fold_metrics.append(m)
-        print(f"Fold {fold}: {json.dumps(m, ensure_ascii=False)}")
+            fold_model = CatBoostRegressor(
+                loss_function="RMSE",
+                eval_metric="RMSE",
+                iterations=3000,
+                learning_rate=0.025,
+                depth=10,
+                l2_leaf_reg=6,
+                random_seed=RANDOM_STATE,
+                subsample=0.88,
+                rsm=0.88,
+                bagging_temperature=0.4,
+                od_type="Iter",
+                od_wait=180,
+                min_data_in_leaf=15,
+                verbose=False,
+            )
 
-    cv_summary = {k: safe_mean([fm.get(k) for fm in fold_metrics]) for k in fold_metrics[0].keys()}
+            fold_model.fit(tr_pool, eval_set=va_pool, use_best_model=True)
+            pred_va_log = fold_model.predict(X_va)
 
-    print("\n===== 5-FOLD GROUP CV AVERAGE =====")
-    print(json.dumps(cv_summary, ensure_ascii=False, indent=2))
+            if USE_LOG_TARGET:
+                true_va = np.expm1(np.asarray(y_va, dtype=float))
+                pred_va = np.expm1(np.asarray(pred_va_log, dtype=float))
+            else:
+                true_va = np.asarray(y_va, dtype=float)
+                pred_va = np.asarray(pred_va_log, dtype=float)
 
-    # ---- final model on full data ----
-    final_pool = make_catboost_pool(work_df[feature_cols], work_df["target_log"], cat_cols)
+            m = compute_metrics(true_va, pred_va)
+            cv_metrics.append(m)
+            print(f"Fold {fold}: {json.dumps(m, ensure_ascii=False)}")
+    else:
+        print("Không đủ số nhóm để chạy GroupKFold, bỏ qua CV.")
+
+    cv_average_metrics = average_metric_dicts(cv_metrics)
+
+    print("\n===== GROUP K-FOLD CV AVERAGE =====")
+    print(json.dumps(cv_average_metrics, ensure_ascii=False, indent=2))
+
+    # =========================
+    # FINAL MODEL ON FULL DATA
+    # =========================
+    final_X = prepare_model_input(work_feat, feature_cols, cat_cols)
+    final_y = work_feat["target_log"].copy()
+
+    final_pool = Pool(final_X, final_y, cat_features=cat_cols)
+
     final_model = CatBoostRegressor(
         loss_function="RMSE",
         eval_metric="RMSE",
-        iterations=int(model.get_params().get("iterations", 5000)),
+        iterations=5000,
         learning_rate=0.025,
         depth=10,
         l2_leaf_reg=6,
@@ -548,10 +708,13 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
     print("\n===== TOP 20 FEATURES =====")
     print(imp_df.head(20).to_string(index=False))
 
-    # ---- save artifacts ----
+    # =========================
+    # SAVE ARTIFACTS
+    # =========================
     model_path = MODEL_DIR / f"catboost_spatial_{target_col}.cbm"
     meta_path = MODEL_DIR / f"catboost_spatial_{target_col}_meta.json"
-    features_path = MODEL_DIR / f"catboost_spatial_{target_col}_features.json"
+    features_path = MODEL_DIR / f"model_{target_col}_features.json"
+    features_path2 = MODEL_DIR / f"catboost_spatial_{target_col}_features.json"
     clusterer_path = MODEL_DIR / f"catboost_spatial_{target_col}_kmeans.joblib"
     importance_path = MODEL_DIR / f"catboost_spatial_{target_col}_feature_importance.csv"
 
@@ -560,7 +723,7 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
     imp_df.to_csv(importance_path, index=False, encoding="utf-8-sig")
 
     meta = {
-        "excel_path": str(EXCEL_PATH),
+        "excel_path": str(EXCEL_FILE),
         "sheet_name": SHEET_NAME,
         "target_col": target_col,
         "random_state": RANDOM_STATE,
@@ -570,20 +733,24 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
         "n_splits_cv": N_SPLITS_CV,
         "feature_cols": feature_cols,
         "cat_cols": cat_cols,
-        "holdout_metrics": holdout_metrics,
-        "cv_average_metrics": cv_summary,
-        "train_rows": int(len(train_df)),
-        "test_rows": int(len(test_df)),
-        "train_clusters": sorted(train_df["cluster"].unique().tolist()),
-        "test_clusters": sorted(test_df["cluster"].unique().tolist()),
-        "schema_note": (
-            "Feature schema được chuẩn hoá để API predict có thể reindex theo feature_cols "
-            "mà không bị lỗi thiếu cột. Các cột không có ở runtime sẽ tự fill rỗng/0."
-        ),
+        "pure_model_holdout_metrics": model_only_holdout_metrics,
+        "hybrid_test_summary": hybrid_summary,
+        "cv_average_metrics": cv_average_metrics,
+        "train_rows": int(len(train_feat)),
+        "test_rows": int(len(test_feat)),
+        "train_lookup_source_rows": int(len(train_raw)),
+        "test_rows_for_eval": int(len(test_raw)),
+        "train_clusters": sorted(train_feat["cluster"].unique().tolist()),
+        "test_clusters": sorted(test_feat["cluster"].unique().tolist()),
     }
 
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     features_path.write_text(json.dumps(feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+    features_path2.write_text(json.dumps(feature_cols, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # also write a second meta name for compatibility if needed
+    meta_path2 = MODEL_DIR / f"model_{target_col}_meta.json"
+    meta_path2.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"\nĐã lưu model:      {model_path}")
     print(f"Đã lưu meta:       {meta_path}")
@@ -596,34 +763,30 @@ def train_one_target(df: pd.DataFrame, target_col: str) -> Dict:
         "model_path": str(model_path),
         "meta_path": str(meta_path),
         "features_path": str(features_path),
-        "clusterer_path": str(clusterer_path),
-        "importance_path": str(importance_path),
-        "holdout_metrics": holdout_metrics,
-        "cv_average_metrics": cv_summary,
+        "cv_average_metrics": cv_average_metrics,
+        "pure_model_holdout_metrics": model_only_holdout_metrics,
+        "hybrid_test_summary": hybrid_summary,
         "top_features": imp_df.head(20).to_dict(orient="records"),
-        "train_rows": int(len(train_df)),
-        "test_rows": int(len(test_df)),
+        "train_rows": int(len(train_feat)),
+        "test_rows": int(len(test_feat)),
     }
 
 
+# =========================
+# MAIN
+# =========================
 def main():
-    if not EXCEL_PATH.exists():
-        raise FileNotFoundError(f"Không tìm thấy file Excel: {EXCEL_PATH}")
+    if not EXCEL_FILE.exists():
+        raise FileNotFoundError(f"Không tìm thấy file Excel: {EXCEL_FILE}")
 
-    df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME)
+    df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME)
     df = canonicalize_columns(df)
 
-    # kiểm tra tối thiểu
-    if "X" not in df.columns or "Y" not in df.columns:
-        raise ValueError("Cần tối thiểu 2 cột X, Y (hoặc Longitude, Latitude) để huấn luyện spatial model.")
-    if "TenDuong" not in df.columns or "QuanHuyen" not in df.columns:
-        raise ValueError("Cần có TenDuong và QuanHuyen để train model ổn định.")
-
     results = {}
-    for target_col in TARGET_COLS:
+    for target_col in TARGETS:
         results[target_col] = train_one_target(df, target_col)
 
-    summary_path = MODEL_DIR / "training_summary_spatial_v2.json"
+    summary_path = MODEL_DIR / "training_summary_spatial_pro_v6.json"
     summary_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nĐã lưu tổng hợp kết quả tại: {summary_path}")
 

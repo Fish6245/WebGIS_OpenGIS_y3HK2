@@ -11,8 +11,8 @@ from catboost import CatBoostRegressor
 # NHẬP THÔNG TIN
 # =====================================================
 
-ROAD_NAME = "Trương Định"
-DISTRICT = "Quận 1"
+ROAD_NAME = "Trần Quốc Thảo"
+DISTRICT = "Quận 3"
 
 # nếu có Phường thì điền thêm
 WARD = None

@@ -133,7 +133,9 @@
       TenDuong: name,
       Phuong: item.phuong || item.ward || item.suburb || item.Phuong || "",
       QuanHuyen: item.district || item.city_district || item.QuanHuyen || "",
+      Address_found: item.display_name || "",
     };
+
     // BỔ SUNG: nearby chạy nền
     if (Number.isFinite(lat) && Number.isFinite(lon) && window.loadNearbyData) {
       window.loadNearbyData(lat, lon);
