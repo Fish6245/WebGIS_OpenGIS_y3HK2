@@ -370,11 +370,6 @@ class GisService
 
         $debug = $this->debugGeojson($lat,$lon);
 
-        file_put_contents(
-            __DIR__.'/debug_geojson.txt',
-            print_r($debug,true)
-        );
-
         $result = [
             'TenDuong' => $osm['TenDuong'] ?? '',
 

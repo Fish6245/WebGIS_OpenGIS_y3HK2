@@ -12,7 +12,6 @@ import pandas as pd
 from catboost import CatBoostRegressor, Pool
 from sklearn.cluster import KMeans
 from sklearn.model_selection import GroupKFold
-from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 warnings.filterwarnings("ignore")
 
@@ -113,10 +112,7 @@ def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Identical spirit to service: same raw text columns, same derived features,
-    same runtime placeholders.
-    """
+
     df = canonicalize_columns(df).copy()
 
     for c in [

@@ -285,21 +285,17 @@
     const isMatched = data?.matched_source === true;
 
     const sourceLabel = isMatched
-      ? "Nguồn kết quả: tìm trong file"
-      : "Nguồn kết quả: model dự đoán - độ chính xác có thể không cao";
+      ? "Nguồn kết quả: Quyết định 79/2024/QĐ-UBND"
+      : "Nguồn kết quả: Model dự đoán - độ chính xác có thể không cao";
 
     if (!p) {
       predictionBox.innerHTML = "Không có dữ liệu dự đoán.";
       return;
     }
 
+    const info = data?.matched_info || window.currentAddress || {};
     const address =
-      [
-        data?.matched_info?.TenDuong,
-        data?.matched_info?.Phuong,
-        data?.matched_info?.QuanHuyen,
-        data?.matched_info?.TinhThanh,
-      ]
+      [info.TenDuong, info.Phuong, info.QuanHuyen, info.TinhThanh]
         .filter(Boolean)
         .join(", ") || "Không rõ";
 

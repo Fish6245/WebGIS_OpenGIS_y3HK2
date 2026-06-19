@@ -42,6 +42,9 @@
       };
 
       console.log("PAYLOAD SEND:", payload);
+      console.log("TenDuong =", payload.TenDuong);
+      console.log("Phuong =", payload.Phuong);
+      console.log("QuanHuyen =", payload.QuanHuyen);
 
       const res = await apiPost("predict.php", payload);
 

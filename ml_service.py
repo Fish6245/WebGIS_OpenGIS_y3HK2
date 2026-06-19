@@ -380,9 +380,15 @@ def predict(req: PredictRequest):
             "prediction": result,
             "GiaDat2019": result.get("GiaDat2019"),
             "GiaDat2025": result.get("GiaDat2025"),
+
+            "matched_info": {
+                "TenDuong": payload.get("TenDuong"),
+                "Phuong": payload.get("Phuong"),
+                "QuanHuyen": payload.get("QuanHuyen"),
+                "TinhThanh": payload.get("TinhThanh"),
+            }
         }
 
-        # thông tin dòng được match
         if matched:
             response["matched_info"] = {
                 "TenDuong": source_row.get(

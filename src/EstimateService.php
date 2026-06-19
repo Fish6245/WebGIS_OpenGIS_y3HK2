@@ -56,7 +56,6 @@ public function predictPrice(array $data): array
         "nearbyPlaces" => $data["nearbyPlaces"] ?? [],
     ];
 
-    // Bổ sung thông tin từ GIS nếu thiếu
     if (
         $lat !== null &&
         $lng !== null &&
